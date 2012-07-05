@@ -206,7 +206,7 @@ class Fluent::NumericCounterOutput < Fluent::Output
       value = value.to_f
       matched = false
       @patterns.each do |index, name, low, high|
-        next if low.nil? or value < low or value >= high
+        next if low.nil? or value < low or (not high.nil? and value >= high)
         c[index] += 1
         matched = true
         break
