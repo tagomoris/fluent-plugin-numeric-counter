@@ -61,6 +61,58 @@ Size specifier (like 10k, 5M, 103g) available as 1024\*\*1, 1024\*\*2, 1024\*\*3
 
 You can try to use negative numbers, and floating point numbers.... (not tested enough).
 
+With 'output\_per\_tag' option and 'tag\_prefix', we get one result message for one tag:
+
+    <match accesslog.{foo,bar}>
+      type numeric_counter
+      unit hour
+      aggregate tag
+      count_key bytes
+      output_per_tag yes
+      tag_prefix byteslog
+      input_tag_remove_prefix accesslog
+      
+      pattern1 SMALL    0 1k
+      pattern2 MIDDLE  1k 1m
+      pattern3 LARGE   1m 10m
+      pattern4 HUGE   10m 1g
+      pattern5 XXXX    1g
+    </match>
+    # => tag: 'byteslog.foo' and 'byteslog.bar'
+    #    message: {'SMALL_count' => 100, ... }
+
+And you can get tested messages count with 'output\_messages' option:
+
+    <match accesslog.{foo,bar}>
+      type numeric_counter
+      unit hour
+      aggregate tag
+      count_key bytes
+      input_tag_remove_prefix accesslog
+      output_messages yes
+      
+      pattern1 SMALL    0 1k
+      pattern2 LARGE   1k
+    </match>
+    # => tag: 'numcount'
+    #    message: {'foo_messages' => xxx, 'bar_messages' => yyy, 'foo_SMALL_count' => 100, ... }
+    
+    <match accesslog.{foo,bar}>
+      type numeric_counter
+      unit hour
+      aggregate tag
+      count_key bytes
+      output_per_tag yes
+      tag_prefix num
+      input_tag_remove_prefix accesslog
+      output_messages yes
+      
+      pattern1 SMALL    0 1k
+      pattern2 LARGE   1k
+    </match>
+    # => tag: 'num.foo' or 'num.bar'
+    #    message: {'messages' => xxx, 'SMALL_count' => 100, ... }
+
 ## TODO
 
 * more tests
