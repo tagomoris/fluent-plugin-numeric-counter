@@ -5,11 +5,14 @@ class Fluent::NumericCounterOutput < Fluent::Output
 
   config_param :count_interval, :time, :default => 60
   config_param :unit, :string, :default => nil
+  config_param :output_per_tag, :bool, :default => false
   config_param :aggregate, :string, :default => 'tag'
   config_param :tag, :string, :default => 'numcount'
+  config_param :tag_prefix, :string, :default => nil
   config_param :input_tag_remove_prefix, :string, :default => nil
   config_param :count_key, :string
   config_param :outcast_unmatched, :bool, :default => false
+  config_param :output_messages, :bool, :default => false
 
   # pattern0 reserved as unmatched counts
   config_param :pattern1, :string # string: NAME LOW HIGH
@@ -20,8 +23,6 @@ class Fluent::NumericCounterOutput < Fluent::Output
   
   attr_accessor :counts, :last_checked
 
-  # for test
-  # attr_accessor :count_interval, :unit, :aggregate, :tag, :input_tag_remove_prefix, :count_key, :outcast_unmatched
   attr_accessor :patterns
 
   def parse_num(str)
@@ -77,6 +78,11 @@ class Fluent::NumericCounterOutput < Fluent::Output
       raise Fluent::ConfigError, "unspecified high threshold allowed only in last pattern" if high.nil? and index != @patterns.length - 1
     end
     
+    if @output_per_tag
+      raise Fluent::ConfigError, "tag_prefix must be specified with output_per_tag" unless @tag_prefix
+      @tag_prefix_string = @tag_prefix + '.'
+    end
+
     if @input_tag_remove_prefix
       @removed_prefix_string = @input_tag_remove_prefix + '.'
       @removed_length = @removed_prefix_string.length
@@ -131,53 +137,72 @@ class Fluent::NumericCounterOutput < Fluent::Output
     tag
   end
 
-  def generate_output(counts, step)
-    output = {}
+  def generate_fields(step, target_counts, attr_prefix, output)
+    sum = if @outcast_unmatched
+            target_counts[1..-1].inject(:+)
+          else
+            target_counts.inject(:+)
+          end
+    messages = sum + (@outcast_unmatched ? target_counts[0] : 0)
 
-    if @aggregate == :all
-      # index 0 is unmatched
-      sum = if @outcast_unmatched
-              counts['all'][1..-1].inject(:+)
-            else
-              counts['all'].inject(:+)
-            end
-      counts['all'].each_with_index do |count,i|
-        name = @patterns[i][1]
-        output[name + '_count'] = count
-        output[name + '_rate'] = ((count * 100.0) / (1.00 * step)).floor / 100.0
-        unless i == 0 and @outcast_unmatched
-          output[name + '_percentage'] = count * 100.0 / (1.00 * sum) if sum > 0
-        end
+    target_counts.each_with_index do |count,i|
+      name = @patterns[i][1]
+      output[attr_prefix + name + '_count'] = count
+      output[attr_prefix + name + '_rate'] = ((count * 100.0) / (1.00 * step)).floor / 100.0
+      unless i == 0 and @outcast_unmatched
+        output[attr_prefix + name + '_percentage'] = count * 100.0 / (1.00 * sum) if sum > 0
       end
-      return output
+      if @output_messages
+        output[attr_prefix + 'messages'] = messages
+      end
     end
 
+    output    
+  end
+
+  def generate_output(counts, step)
+    if @aggregate == :all
+      return generate_fields(step, counts['all'], '', {})
+    end
+
+    output = {}
     counts.keys.each do |tag|
-      t = stripped_tag(tag)
-      sum = if @outcast_unmatched
-              counts[tag][1..-1].inject(:+)
-            else
-              counts[tag].inject(:+)
-            end
-      counts[tag].each_with_index do |count,i|
-        name = @patterns[i][1]
-        output[t + '_' + name + '_count'] = count
-        output[t + '_' + name + '_rate'] = ((count * 100.0) / (1.00 * step)).floor / 100.0
-        unless i == 0 and @outcast_unmatched
-          output[t + '_' + name + '_percentage'] = count * 100.0 / (1.00 * sum) if sum > 0
-        end
-      end
+      generate_fields(step, counts[tag], stripped_tag(tag) + '_', output)
     end
     output
   end
 
-  def flush(step)
+  def generate_output_per_tags(counts, step)
+    if @aggregate == :all
+      return {'all' => generate_fields(step, counts['all'], '', {})}
+    end
+
+    output_pairs = {}
+    counts.keys.each do |tag|
+      output_pairs[stripped_tag(tag)] = generate_fields(step, counts[tag], '', {})
+    end
+    output_pairs
+  end
+
+  def flush(step) # returns one message
     flushed,@counts = @counts,count_initialized(@counts.keys.dup)
     generate_output(flushed, step)
   end
 
+  def flush_per_tags(step) # returns map of tag - message
+    flushed,@counts = @counts,count_initialized(@counts.keys.dup)
+    generate_output_per_tags(flushed, step)
+  end
+
   def flush_emit(step)
-    Fluent::Engine.emit(@tag, Fluent::Engine.now, flush(step))
+    if @output_per_tag
+      time = Fluent::Engine.now
+      flush_per_tags(step).each do |tag,message|
+        Fluent::Engine.emit(@tag_prefix_string + tag, time, message)
+      end
+    else
+      Fluent::Engine.emit(@tag, Fluent::Engine.now, flush(step))
+    end
   end
 
   def start_watch
