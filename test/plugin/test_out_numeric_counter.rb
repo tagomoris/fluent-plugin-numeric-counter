@@ -119,11 +119,11 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     assert_nil d.instance.counts['test.input']
 
     d.instance.countups('test.input', [0, 0, 0, 0])
-    assert_equal [0,0,0,0], d.instance.counts['test.input']
+    assert_equal [0,0,0,0,0], d.instance.counts['test.input']
     d.instance.countups('test.input', [1, 1, 1, 0])
-    assert_equal [1,1,1,0], d.instance.counts['test.input']
+    assert_equal [1,1,1,0,3], d.instance.counts['test.input']
     d.instance.countups('test.input', [0, 5, 1, 0])
-    assert_equal [1,6,2,0], d.instance.counts['test.input']
+    assert_equal [1,6,2,0,9], d.instance.counts['test.input']
   end
 
   def test_generate_output
@@ -132,7 +132,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     # pattern2 u1s 100000 1000000
     # pattern3 u3s 1000000 3000000
 
-    r1 = d.instance.generate_output({'test.input' => [60,240,180,120], 'test.input2' => [0,600,0,0]}, 60)
+    r1 = d.instance.generate_output({'test.input' => [60,240,180,120,600], 'test.input2' => [0,600,0,0,600]}, 60)
     assert_equal   60, r1['input_unmatched_count']
     assert_equal  1.0, r1['input_unmatched_rate']
     assert_equal 10.0, r1['input_unmatched_percentage']
@@ -163,7 +163,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
 
     d = create_driver(CONFIG + "\n output_messages yes \n")
 
-    r1 = d.instance.generate_output({'test.input' => [60,240,180,120], 'test.input2' => [0,600,0,0]}, 60)
+    r1 = d.instance.generate_output({'test.input' => [60,240,180,120,600], 'test.input2' => [0,600,0,0,600]}, 60)
     assert_equal 600, r1['input_messages']
     assert_equal 600, r1['input2_messages']
 
@@ -174,7 +174,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
       outcast_unmatched yes
       output_messages true
     ]
-    r2 = d.instance.generate_output({'all' => [60,240]}, 60)
+    r2 = d.instance.generate_output({'all' => [60,240,300]}, 60)
     assert_equal  60, r2['unmatched_count']
     assert_equal 1.0, r2['unmatched_rate']
     assert_nil r2['unmatched_percentage']
@@ -190,7 +190,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     # pattern2 u1s 100000 1000000
     # pattern3 u3s 1000000 3000000
 
-    r1 = d.instance.generate_output_per_tags({'test.input' => [60,240,180,120], 'test.input2' => [0,600,0,0]}, 60)
+    r1 = d.instance.generate_output_per_tags({'test.input' => [60,240,180,120,600], 'test.input2' => [0,600,0,0,600]}, 60)
     assert_equal 2, r1.keys.size
 
     r = r1['input']
@@ -225,7 +225,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
 
     d = create_driver(CONFIG_OUTPUT_PER_TAG)
 
-    r1 = d.instance.generate_output_per_tags({'test.input' => [60,240,180,120], 'test.input2' => [0,600,0,0]}, 60)
+    r1 = d.instance.generate_output_per_tags({'test.input' => [60,240,180,120,600], 'test.input2' => [0,600,0,0,600]}, 60)
     assert_equal 600, r1['input']['messages']
     assert_equal 600, r1['input2']['messages']
 
@@ -236,7 +236,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
       outcast_unmatched yes
       output_messages true
     ]
-    r2 = d.instance.generate_output_per_tags({'all' => [60,240]}, 60)
+    r2 = d.instance.generate_output_per_tags({'all' => [60,240,300]}, 60)
     assert_equal  60, r2['all']['unmatched_count']
     assert_equal 1.0, r2['all']['unmatched_rate']
     assert_nil r2['all']['unmatched_percentage']
