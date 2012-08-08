@@ -409,4 +409,91 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     assert_equal 20, r['unmatched_percentage']
     assert_equal 300, r['messages']
   end
+
+  def test_zero_tags
+    fields = ['unmatched','u100ms','u1s','u3s'].map{|k| 'tag1_' + k}.map{|p|
+      ['count', 'rate', 'percentage'].map{|a| p + '_' + a}
+    }.flatten
+    fields_without_percentage = ['unmatched','u100ms','u1s','u3s'].map{|k| 'tag1_' + k}.map{|p|
+      ['count', 'rate'].map{|a| p + '_' + a}
+    }.flatten
+
+    d = create_driver(CONFIG, 'test.tag1')
+    # CONFIG = %[
+    #   count_interval 60
+    #   aggregate tag
+    #   input_tag_remove_prefix test
+    #   count_key target
+    #   pattern1 u100ms 0 100000
+    #   pattern2 u1s 100000 1000000
+    #   pattern3 u3s 1000000 3000000
+    # ]
+    d.run do
+      60.times do
+        d.emit({'target' =>  '50000'})
+        d.emit({'target' => '100000'})
+        d.emit({'target' => '100001'})
+        d.emit({'target' => '0.0'})
+        d.emit({'target' => '-1'})
+      end
+    end
+    d.instance.flush_emit(60)
+    assert_equal 1, d.emits.size
+    r1 = d.emits[0][2]
+    assert_equal fields, r1.keys
+
+    d.instance.flush_emit(60)
+    assert_equal 2, d.emits.size # +1
+    r2 = d.emits[1][2]
+    assert_equal fields_without_percentage, r2.keys
+    assert_equal [0]*8, r2.values
+
+    d.instance.flush_emit(60)
+    assert_equal 2, d.emits.size # +0
+  end
+
+  def test_zero_tags_per_tag
+    fields = (['unmatched','u100ms','u1s','u3s'].map{|p|
+        ['count', 'rate', 'percentage'].map{|a| p + '_' + a}
+      }.flatten + ['messages']).sort
+    fields_without_percentage = (['unmatched','u100ms','u1s','u3s'].map{|p|
+        ['count', 'rate'].map{|a| p + '_' + a}
+      }.flatten + ['messages']).sort
+
+    d = create_driver(CONFIG_OUTPUT_PER_TAG, 'test.tag1')
+    # CONFIG_OUTPUT_PER_TAG = %[
+    #   count_interval 60
+    #   aggregate tag
+    #   output_per_tag true
+    #   tag_prefix n
+    #   input_tag_remove_prefix test
+    #   count_key target
+    #   pattern1 u100ms 0 100000
+    #   pattern2 u1s 100000 1000000
+    #   pattern3 u3s 1000000 3000000
+    #   output_messages true
+    # ]
+    d.run do
+      60.times do
+        d.emit({'target' =>  '50000'})
+        d.emit({'target' => '100000'})
+        d.emit({'target' => '100001'})
+        d.emit({'target' => '0.0'})
+        d.emit({'target' => '-1'})
+      end
+    end
+    d.instance.flush_emit(60)
+    assert_equal 1, d.emits.size
+    r1 = d.emits[0][2]
+    assert_equal fields, r1.keys.sort
+
+    d.instance.flush_emit(60)
+    assert_equal 2, d.emits.size # +1
+    r2 = d.emits[1][2]
+    assert_equal fields_without_percentage, r2.keys.sort
+    assert_equal [0]*9, r2.values # (_count, _rate) x4 + messages
+
+    d.instance.flush_emit(60)
+    assert_equal 2, d.emits.size # +0
+  end
 end
