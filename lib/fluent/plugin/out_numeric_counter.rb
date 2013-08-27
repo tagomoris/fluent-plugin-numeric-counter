@@ -1,6 +1,11 @@
 class Fluent::NumericCounterOutput < Fluent::Output
   Fluent::Plugin.register_output('numeric_counter', self)
 
+  def initialize
+    super
+    require 'pathname'
+  end
+
   PATTERN_MAX_NUM = 20
 
   config_param :count_interval, :time, :default => 60
@@ -13,6 +18,7 @@ class Fluent::NumericCounterOutput < Fluent::Output
   config_param :count_key, :string
   config_param :outcast_unmatched, :bool, :default => false
   config_param :output_messages, :bool, :default => false
+  config_param :store_file, :string, :default => nil
 
   # pattern0 reserved as unmatched counts
   config_param :pattern1, :string # string: NAME LOW HIGH
@@ -21,8 +27,10 @@ class Fluent::NumericCounterOutput < Fluent::Output
     config_param ('pattern' + i.to_s).to_sym, :string, :default => nil
   end
   
-  attr_accessor :counts, :last_checked
-
+  attr_accessor :counts
+  attr_accessor :last_checked
+  attr_accessor :saved_duration
+  attr_accessor :saved_at
   attr_accessor :patterns
 
   def parse_num(str)
@@ -88,12 +96,20 @@ class Fluent::NumericCounterOutput < Fluent::Output
       @removed_length = @removed_prefix_string.length
     end
 
+    if @store_file
+      f = Pathname.new(@store_file)
+      if (f.exist? && !f.writable_real?) || (!f.exist? && !f.parent.writable_real?)
+        raise Fluent::ConfigError, "#{@store_file} is not writable"
+      end
+    end
+
     @counts = count_initialized
     @mutex = Mutex.new
   end
 
   def start
     super
+    load_status(@store_file, @count_interval) if @store_file
     start_watch
   end
 
@@ -101,6 +117,7 @@ class Fluent::NumericCounterOutput < Fluent::Output
     super
     @watcher.terminate
     @watcher.join
+    save_status(@store_file) if @store_file
   end
 
   def count_initialized(keys=nil)
@@ -217,7 +234,7 @@ class Fluent::NumericCounterOutput < Fluent::Output
   end
 
   def watch
-    @last_checked = Fluent::Engine.now
+    @last_checked ||= Fluent::Engine.now
     while true
       sleep 0.5
       if Fluent::Engine.now - @last_checked >= @count_interval
@@ -249,4 +266,60 @@ class Fluent::NumericCounterOutput < Fluent::Output
 
     chain.next
   end
+
+  # Store internal status into a file
+  #
+  # @param [String] file_path
+  def save_status(file_path)
+    begin
+      Pathname.new(file_path).open('wb') do |f|
+        @saved_at = Fluent::Engine.now
+        @saved_duration = @saved_at - @last_checked
+        Marshal.dump({
+          :counts           => @counts,
+          :saved_at         => @saved_at,
+          :saved_duration   => @saved_duration,
+          :aggregate        => @aggregate,
+          :count_key        => @count_key,
+          :patterns         => @patterns,
+        }, f)
+      end
+    rescue => e
+      $log.warn "out_datacounter: Can't write store_file #{e.class} #{e.message}"
+    end
+  end
+
+  # Load internal status from a file
+  #
+  # @param [String] file_path
+  # @param [Interger] count_interval
+  def load_status(file_path, count_interval)
+    return unless (f = Pathname.new(file_path)).exist?
+
+    begin
+      f.open('rb') do |f|
+        stored = Marshal.load(f)
+        if stored[:aggregate] == @aggregate and
+          stored[:count_key] == @count_key and
+          stored[:patterns]  == @patterns
+
+          if Fluent::Engine.now <= stored[:saved_at] + count_interval
+            @counts = stored[:counts]
+            @saved_at = stored[:saved_at]
+            @saved_duration = stored[:saved_duration]
+
+            # skip the saved duration to continue counting
+            @last_checked = Fluent::Engine.now - @saved_duration
+          else
+            $log.warn "out_datacounter: stored data is outdated. ignore stored data"
+          end
+        else
+          $log.warn "out_datacounter: configuration param was changed. ignore stored data"
+        end
+      end
+    rescue => e
+      $log.warn "out_datacounter: Can't load store_file #{e.class} #{e.message}"
+    end
+  end
+
 end
