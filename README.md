@@ -1,4 +1,4 @@
-# fluent-plugin-numeric-counter
+# fluent-plugin-numeric-counter, a plugin for [Fluentd](http://fluentd.org)
 
 ## Component
 
