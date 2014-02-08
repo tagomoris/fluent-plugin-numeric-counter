@@ -1,10 +1,10 @@
-# fluent-plugin-numeric-counter, a plugin for [Fluentd](http://fluentd.org)
+# fluent-plugin-numeric-counter
 
 ## Component
 
 ### NumericCounterOutput
 
-Fluentd plugin to count messages, matches for numeric range patterns, and emits its result (like fluent-plugin-datacounter).
+[Fluentd](http://fluentd.org) plugin to count messages, matches for numeric range patterns, and emits its result (like fluent-plugin-datacounter).
 
 - Counts per min/hour/day
 - Counts per second (average every min/hour/day)
