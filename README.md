@@ -121,7 +121,7 @@ And you can get tested messages count with 'output\_messages' option:
 
 * tag
 
-    The output tag. Default is `datacount`.
+    The output tag. Default is `numcount`.
 
 * tag\_prefix
 
