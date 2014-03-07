@@ -26,12 +26,17 @@ class Fluent::NumericCounterOutput < Fluent::Output
   (2..PATTERN_MAX_NUM).each do |i|
     config_param ('pattern' + i.to_s).to_sym, :string, :default => nil
   end
-  
+
   attr_accessor :counts
   attr_accessor :last_checked
   attr_accessor :saved_duration
   attr_accessor :saved_at
   attr_accessor :patterns
+
+  # Define `log` method for v0.10.42 or earlier
+  unless method_defined?(:log)
+    define_method("log") { $log }
+  end
 
   def parse_num(str)
     if str.nil?
@@ -66,7 +71,7 @@ class Fluent::NumericCounterOutput < Fluent::Output
 
     invalids = conf.keys.select{|k| k =~ /^pattern(\d+)$/ and not (1..PATTERN_MAX_NUM).include?($1.to_i)}
     if invalids.size > 0
-      $log.warn "invalid number patterns (valid pattern number:1-#{PATTERN_MAX_NUM}):" + invalids.join(",")
+      log.warn "invalid number patterns (valid pattern number:1-#{PATTERN_MAX_NUM}):" + invalids.join(",")
     end
     (1..PATTERN_MAX_NUM).each do |i|
       next unless conf["pattern#{i}"]
@@ -285,7 +290,7 @@ class Fluent::NumericCounterOutput < Fluent::Output
         }, f)
       end
     rescue => e
-      $log.warn "out_datacounter: Can't write store_file #{e.class} #{e.message}"
+      log.warn "out_datacounter: Can't write store_file #{e.class} #{e.message}"
     end
   end
 
@@ -311,14 +316,14 @@ class Fluent::NumericCounterOutput < Fluent::Output
             # skip the saved duration to continue counting
             @last_checked = Fluent::Engine.now - @saved_duration
           else
-            $log.warn "out_datacounter: stored data is outdated. ignore stored data"
+            log.warn "out_datacounter: stored data is outdated. ignore stored data"
           end
         else
-          $log.warn "out_datacounter: configuration param was changed. ignore stored data"
+          log.warn "out_datacounter: configuration param was changed. ignore stored data"
         end
       end
     rescue => e
-      $log.warn "out_datacounter: Can't load store_file #{e.class} #{e.message}"
+      log.warn "out_datacounter: Can't load store_file #{e.class} #{e.message}"
     end
   end
 
