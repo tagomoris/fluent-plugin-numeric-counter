@@ -38,6 +38,11 @@ class Fluent::NumericCounterOutput < Fluent::Output
     define_method("log") { $log }
   end
 
+  # Define `router` method of v0.12 to support v0.10.57 or earlier
+  unless method_defined?(:router)
+    define_method("router") { Fluent::Engine }
+  end
+
   def parse_num(str)
     if str.nil?
       nil
@@ -224,12 +229,12 @@ class Fluent::NumericCounterOutput < Fluent::Output
     if @output_per_tag
       time = Fluent::Engine.now
       flush_per_tags(step).each do |tag,message|
-        Fluent::Engine.emit(@tag_prefix_string + tag, time, message)
+        router.emit(@tag_prefix_string + tag, time, message)
       end
     else
       message = flush(step)
       if message.keys.size > 0
-        Fluent::Engine.emit(@tag, Fluent::Engine.now, message)
+        router.emit(@tag, Fluent::Engine.now, message)
       end
     end
   end
