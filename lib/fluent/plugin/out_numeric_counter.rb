@@ -38,6 +38,11 @@ class Fluent::NumericCounterOutput < Fluent::Output
     define_method("log") { $log }
   end
 
+  # Define `router` method of v0.12 to support v0.10.57 or earlier
+  unless method_defined?(:router)
+    define_method("router") { Fluent::Engine }
+  end
+
   def parse_num(str)
     if str.nil?
       nil
