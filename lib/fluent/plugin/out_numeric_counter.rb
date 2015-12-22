@@ -8,23 +8,52 @@ class Fluent::NumericCounterOutput < Fluent::Output
 
   PATTERN_MAX_NUM = 20
 
-  config_param :count_interval, :time, :default => 60
-  config_param :unit, :string, :default => nil
-  config_param :output_per_tag, :bool, :default => false
-  config_param :aggregate, :string, :default => 'tag'
-  config_param :tag, :string, :default => 'numcount'
-  config_param :tag_prefix, :string, :default => nil
-  config_param :input_tag_remove_prefix, :string, :default => nil
-  config_param :count_key, :string
-  config_param :outcast_unmatched, :bool, :default => false
-  config_param :output_messages, :bool, :default => false
-  config_param :store_file, :string, :default => nil
+  config_param :count_interval, :time, :default => 60,
+               :desc => 'The interval time to count in seconds.'
+  config_param :unit, :string, :default => nil,
+               :desc => <<-DESC
+The interval time to monitor specified an unit (either of minute, hour, or day).
+Use either of count_interval or unit.
+DESC
+  config_param :output_per_tag, :bool, :default => false,
+               :desc => <<-DESC
+Emit for each input tag.
+tag_prefix must be specified together.
+DESC
+  config_param :aggregate, :string, :default => 'tag',
+               :desc => 'Calculate in each input tag separetely, or all records in a mass.'
+  config_param :tag, :string, :default => 'numcount',
+               :desc => 'The output tag.'
+  config_param :tag_prefix, :string, :default => nil,
+               :desc => <<-DESC
+The prefix string which will be added to the input tag.
+output_per_tag yes must be specified together.
+DESC
+  config_param :input_tag_remove_prefix, :string, :default => nil,
+               :desc => 'The prefix string which will be removed from the input tag.'
+  config_param :count_key, :string,
+               :desc => 'The key to count in the event record.'
+  config_param :outcast_unmatched, :bool, :default => false,
+               :desc => <<-DESC
+Specify yes if you do not want to include 'unmatched' counts into percentage.
+DESC
+  config_param :output_messages, :bool, :default => false,
+               :desc => 'Specify yes if you want to get tested messages.'
+  config_param :store_file, :string, :default => nil,
+               :desc => <<-DESC
+Store internal data into a file of the given path on shutdown, and load on starting.
+DESC
 
   # pattern0 reserved as unmatched counts
-  config_param :pattern1, :string # string: NAME LOW HIGH
-                                  # LOW/HIGH allows size prefix (ex: 10k, 5M, 3500G)
+  config_param :pattern1, :string,
+               :desc => <<-DESC
+string: NAME LOW HIGH
+LOW/HIGH allows size prefix (ex: 10k, 5M, 3500G)
+Note that pattern0 reserved as unmatched counts.
+DESC
   (2..PATTERN_MAX_NUM).each do |i|
-    config_param ('pattern' + i.to_s).to_sym, :string, :default => nil
+    config_param ('pattern' + i.to_s).to_sym, :string, :default => nil,
+                 :desc => 'string: NAME LOW HIGH'
   end
 
   attr_accessor :counts
