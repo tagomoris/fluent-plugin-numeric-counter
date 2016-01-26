@@ -26,7 +26,7 @@ If you want to omit 'unmatched' messages from percentage counting, specify 'outc
 Count messages that have attribute 'duration'(response time by microseconds), by several numeric ranges, per minutes.
 
     <match accesslog.**>
-      type numeric_counter
+      @type numeric_counter
       unit minute           # or 'count_interval 60s' or '45s', '3m' ... as you want
       aggregate all         # or 'tag'
       count_key duration
@@ -47,7 +47,7 @@ Count messages that have attribute 'duration'(response time by microseconds), by
 Size specifier (like 10k, 5M, 103g) available as 1024\*\*1, 1024\*\*2, 1024\*\*3 ...., for example, for bytes of access log.
 
     <match accesslog.**>
-      type numeric_counter
+      @type numeric_counter
       unit hour
       aggregate tag
       count_key bytes
@@ -64,7 +64,7 @@ You can try to use negative numbers, and floating point numbers.... (not tested 
 With 'output\_per\_tag' option and 'tag\_prefix', we get one result message for one tag:
 
     <match accesslog.{foo,bar}>
-      type numeric_counter
+      @type numeric_counter
       unit hour
       aggregate tag
       count_key bytes
@@ -84,7 +84,7 @@ With 'output\_per\_tag' option and 'tag\_prefix', we get one result message for 
 And you can get tested messages count with 'output\_messages' option:
 
     <match accesslog.{foo,bar}>
-      type numeric_counter
+      @type numeric_counter
       unit hour
       aggregate tag
       count_key bytes
@@ -98,7 +98,7 @@ And you can get tested messages count with 'output\_messages' option:
     #    message: {'foo_messages' => xxx, 'bar_messages' => yyy, 'foo_SMALL_count' => 100, ... }
     
     <match accesslog.{foo,bar}>
-      type numeric_counter
+      @type numeric_counter
       unit hour
       aggregate tag
       count_key bytes
