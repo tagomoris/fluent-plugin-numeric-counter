@@ -8,7 +8,7 @@ Gem::Specification.new do |gem|
   gem.description   = %q{Counts messages, with specified key and numeric value in specified range}
   gem.summary       = %q{Fluentd plugin to count messages with specified numeric values}
   gem.homepage      = "https://github.com/tagomoris/fluent-plugin-numeric-counter"
-  gem.license       = "APLv2"
+  gem.license       = "Apache-2.0"
 
   gem.files         = `git ls-files`.split($\)
   gem.executables   = gem.files.grep(%r{^bin/}).map{ |f| File.basename(f) }
