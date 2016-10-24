@@ -1,9 +1,13 @@
-class Fluent::NumericCounterOutput < Fluent::Output
+require 'fluent/plugin/output'
+require 'pathname'
+
+class Fluent::Plugin::NumericCounterOutput < Fluent::Plugin::Output
   Fluent::Plugin.register_output('numeric_counter', self)
+
+  helpers :event_emitter
 
   def initialize
     super
-    require 'pathname'
   end
 
   PATTERN_MAX_NUM = 20
@@ -124,7 +128,7 @@ DESC
       raise Fluent::ConfigError, "numbers of low/high missing" if low.nil?
       raise Fluent::ConfigError, "unspecified high threshold allowed only in last pattern" if high.nil? and index != @patterns.length - 1
     end
-    
+
     if @output_per_tag
       raise Fluent::ConfigError, "tag_prefix must be specified with output_per_tag" unless @tag_prefix
       @tag_prefix_string = @tag_prefix + '.'
@@ -217,7 +221,7 @@ DESC
       end
     end
 
-    output    
+    output
   end
 
   def generate_output(counts, step)
@@ -284,7 +288,7 @@ DESC
     end
   end
 
-  def emit(tag, es, chain)
+  def process(tag, es)
     c = [0] * @patterns.length
 
     es.each do |time,record|
@@ -302,8 +306,6 @@ DESC
       c[0] += 1 unless matched
     end
     countups(tag, c)
-
-    chain.next
   end
 
   # Store internal status into a file
