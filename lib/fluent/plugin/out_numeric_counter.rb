@@ -4,7 +4,7 @@ require 'pathname'
 class Fluent::Plugin::NumericCounterOutput < Fluent::Plugin::Output
   Fluent::Plugin.register_output('numeric_counter', self)
 
-  helpers :event_emitter, :storage
+  helpers :event_emitter, :storage, :timer
 
   def initialize
     super
@@ -158,8 +158,6 @@ DESC
 
   def shutdown
     super
-    @watcher.terminate
-    @watcher.join
     save_status() if @store_storage
   end
 
@@ -273,18 +271,15 @@ DESC
   end
 
   def start_watch
-    @watcher = Thread.new(&method(:watch))
+    @last_checked ||= Fluent::Engine.now
+    timer_execute(:out_numeric_counter_timer, 0.5, &method(:watch))
   end
 
   def watch
-    @last_checked ||= Fluent::Engine.now
-    while true
-      sleep 0.5
-      if Fluent::Engine.now - @last_checked >= @count_interval
-        now = Fluent::Engine.now
-        flush_emit(now - @last_checked)
-        @last_checked = now
-      end
+    if Fluent::Engine.now - @last_checked >= @count_interval
+      now = Fluent::Engine.now
+      flush_emit(now - @last_checked)
+      @last_checked = now
     end
   end
 
