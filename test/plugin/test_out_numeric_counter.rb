@@ -1,7 +1,10 @@
 require 'helper'
+require 'fluent/test/helpers'
 require 'fluent/test/driver/output'
 
 class NumericCounterOutputTest < Test::Unit::TestCase
+  include Fluent::Test::Helpers
+
   def setup
     Fluent::Test.setup
   end
@@ -51,7 +54,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     ]
 
     assert_equal 60, d.instance.count_interval
-    assert_equal :tag, d.instance.aggregate
+    assert_equal "tag", d.instance.aggregate
     assert_equal 'numcount', d.instance.tag
     assert_nil d.instance.input_tag_remove_prefix
     assert_equal false, d.instance.outcast_unmatched
@@ -80,7 +83,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     ]
 
     assert_equal 60, d.instance.count_interval
-    assert_equal :tag, d.instance.aggregate
+    assert_equal "tag", d.instance.aggregate
     assert_equal 'numcount', d.instance.tag
     assert_nil d.instance.input_tag_remove_prefix
     assert_equal false, d.instance.outcast_unmatched
@@ -505,14 +508,33 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     file = "#{dir}/test.dat"
     File.unlink file if File.exist? file
 
+    config = {
+      "count_interval" => 60,
+      "aggregate" => "tag",
+      "input_tag_remove_prefix" => "test",
+      "count_key" => " target",
+      "pattern1" => "u100ms 0 100000",
+      "pattern2" => "u1s 100000 1000000",
+      "pattern3" => "u3s 1000000 3000000",
+      "store_storage" => true,
+    }
+    conf = config_element('ROOT', '', config, [
+                            config_element(
+                              'storage', '',
+                              {'@type' => 'local',
+                               '@id' => 'test-01',
+                               'path' => "#{file}",
+                               'persistent' => true,
+                              })
+                          ])
     # test store
-    d = create_driver(CONFIG + %[store_file #{file}])
+    d = create_driver(conf)
+    time = Fluent::Engine.now
     d.run(default_tag: 'test') do
       d.instance.flush_emit(60)
-      d.feed({'target' => 1})
-      d.feed({'target' => 1})
-      d.feed({'target' => 1})
-      d.instance.shutdown
+      d.feed(time, {'target' => 1})
+      d.feed(time, {'target' => 1})
+      d.feed(time, {'target' => 1})
     end
     stored_counts = d.instance.counts
     stored_saved_at = d.instance.saved_at
@@ -520,38 +542,41 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     assert File.exist? file
 
     # test load
-    d = create_driver(CONFIG + %[store_file #{file}])
+    d = create_driver(conf)
+    loaded_counts = 0
+    loaded_saved_at = 0
+    loaded_saved_duration = 0
     d.run(default_tag: 'test') do
       loaded_counts = d.instance.counts
       loaded_saved_at = d.instance.saved_at
       loaded_saved_duration = d.instance.saved_duration
-      assert_equal stored_counts, loaded_counts
-      assert_equal stored_saved_at, loaded_saved_at
-      assert_equal stored_saved_duration, loaded_saved_duration
     end
+    assert_equal stored_counts, loaded_counts
+    assert_equal stored_saved_at, loaded_saved_at
+    assert_equal stored_saved_duration, loaded_saved_duration
 
     # test not to load if config is changed
-    d = create_driver(CONFIG + %[count_key foobar store_file #{file}])
+    d = create_driver(conf.merge("count_key" => "foobar", "store_storage" => true))
     d.run(default_tag: 'test') do
       loaded_counts = d.instance.counts
       loaded_saved_at = d.instance.saved_at
       loaded_saved_duration = d.instance.saved_duration
-      assert_equal({}, loaded_counts)
-      assert_equal(nil, loaded_saved_at)
-      assert_equal(nil, loaded_saved_duration)
     end
+    assert_equal({}, loaded_counts)
+    assert_equal(nil, loaded_saved_at)
+    assert_equal(nil, loaded_saved_duration)
 
     # test not to load if stored data is outdated.
     Delorean.jump 61 # jump more than count_interval
-    d = create_driver(CONFIG + %[store_file #{file}])
+    d = create_driver(conf.merge("store_storage" => true))
     d.run(default_tag: 'test') do
       loaded_counts = d.instance.counts
       loaded_saved_at = d.instance.saved_at
       loaded_saved_duration = d.instance.saved_duration
-      assert_equal({}, loaded_counts)
-      assert_equal(nil, loaded_saved_at)
-      assert_equal(nil, loaded_saved_duration)
     end
+    assert_equal({}, loaded_counts)
+    assert_equal(nil, loaded_saved_at)
+    assert_equal(nil, loaded_saved_duration)
     Delorean.back_to_the_present
 
     File.unlink file
