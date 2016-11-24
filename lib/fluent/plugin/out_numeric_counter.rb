@@ -68,16 +68,6 @@ DESC
   attr_accessor :saved_at
   attr_accessor :patterns
 
-  # Define `log` method for v0.10.42 or earlier
-  unless method_defined?(:log)
-    define_method("log") { $log }
-  end
-
-  # Define `router` method of v0.12 to support v0.10.57 or earlier
-  unless method_defined?(:router)
-    define_method("router") { Fluent::Engine }
-  end
-
   def parse_num(str)
     if str.nil?
       nil
