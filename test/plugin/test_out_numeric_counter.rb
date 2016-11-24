@@ -40,9 +40,9 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     p = create_driver.instance
 
     assert_equal 1, p.parse_num('1')
-    assert_equal -1, p.parse_num('-1')
+    assert_equal (-1), p.parse_num('-1')
     assert_equal 1.0, p.parse_num('1.0')
-    assert_equal -2.0, p.parse_num('-2.0000')
+    assert_equal (-2.0), p.parse_num('-2.0000')
     assert_equal 1024, p.parse_num('1k')
   end
 
