@@ -6,34 +6,24 @@ class Fluent::Plugin::NumericCounterOutput < Fluent::Plugin::Output
 
   helpers :event_emitter, :storage, :timer
 
-  def initialize
-    super
-  end
-
   DEFAULT_STORAGE_TYPE = 'local'
   PATTERN_MAX_NUM = 20
 
   config_param :count_interval, :time, default: 60,
                desc: 'The interval time to count in seconds.'
-  config_param :unit, :string, default: nil,
+  config_param :unit, :enum, list: [:minute, :hour, :day], default: nil,
                desc: <<-DESC
 The interval time to monitor specified an unit (either of minute, hour, or day).
 Use either of count_interval or unit.
 DESC
   config_param :output_per_tag, :bool, default: false,
-               desc: <<-DESC
-Emit for each input tag.
-tag_prefix must be specified together.
-DESC
-  config_param :aggregate, :string, default: 'tag',
+               desc: 'Produce counter result per input tags.'
+
+  config_param :aggregate, :enum, list: [:tag, :all], default: :tag,
                desc: 'Calculate in each input tag separetely, or all records in a mass.'
   config_param :tag, :string, default: 'numcount',
                desc: 'The output tag.'
-  config_param :tag_prefix, :string, default: nil,
-               desc: <<-DESC
-The prefix string which will be added to the input tag.
-output_per_tag yes must be specified together.
-DESC
+
   config_param :input_tag_remove_prefix, :string, default: nil,
                desc: 'The prefix string which will be removed from the input tag.'
   config_param :count_key, :string,
@@ -44,6 +34,7 @@ Specify yes if you do not want to include 'unmatched' counts into percentage.
 DESC
   config_param :output_messages, :bool, default: false,
                desc: 'Specify yes if you want to get tested messages.'
+
   config_param :store_file, :string, default: nil,
                obsoleted: 'Use store_storage parameter instead.',
                desc: 'Store internal data into a file of the given path on shutdown, and load on starting.'
@@ -60,6 +51,15 @@ DESC
   (2..PATTERN_MAX_NUM).each do |i|
     config_param ('pattern' + i.to_s).to_sym, :string, default: nil,
                  desc: 'string: NAME LOW HIGH'
+  end
+
+  config_param :tag_prefix, :string, default: nil,
+               desc: 'The prefix string to be added to input tags. Use with "output_per_tag yes".',
+               deprecated: 'Use @label routing instead.'
+
+  config_section :storage do
+    config_set_default :usage, 'resume'
+    config_set_default :@type, DEFAULT_STORAGE_TYPE
   end
 
   attr_accessor :counts
@@ -81,26 +81,26 @@ DESC
   end
 
   def configure(conf)
+    label_routing_specified = conf.has_key?('@label')
+
     super
 
     if @unit
       @count_interval = case @unit
-                        when 'minute' then 60
-                        when 'hour' then 3600
-                        when 'day' then 86400
+                        when :minute then 60
+                        when :hour then 3600
+                        when :day then 86400
                         else
-                          raise Fluent::ConfigError, 'unit must be one of minute/hour/day'
+                          raise "unknown unit:#{@unit}"
                         end
     end
-
-    raise Fluent::ConfigError, "numeric_counter allows tag/all to aggregate unit" unless ["tag", "all"].include?(@aggregate)
 
     @patterns = [[0, 'unmatched', nil, nil]] # counts-index, name, low, high
     pattern_names = ['unmatched']
 
     invalids = conf.keys.select{|k| k =~ /^pattern(\d+)$/ and not (1..PATTERN_MAX_NUM).include?($1.to_i)}
     if invalids.size > 0
-      log.warn "invalid number patterns (valid pattern number:1-#{PATTERN_MAX_NUM}):" + invalids.join(",")
+      log.warn "invalid number patterns (valid pattern number:1-#{PATTERN_MAX_NUM}):", invalids: invalids
     end
     (1..PATTERN_MAX_NUM).each do |i|
       next unless conf["pattern#{i}"]
@@ -120,9 +120,13 @@ DESC
       raise Fluent::ConfigError, "unspecified high threshold allowed only in last pattern" if high.nil? and index != @patterns.length - 1
     end
 
-    if @output_per_tag
-      raise Fluent::ConfigError, "tag_prefix must be specified with output_per_tag" unless @tag_prefix
+    if @output_per_tag && (!label_routing_specified && !@tag_prefix)
+      raise Fluent::ConfigError, "specify @label to route output events into other <label> sections."
+    end
+    if @output_per_tag && @tag_prefix
       @tag_prefix_string = @tag_prefix + '.'
+    else
+      @tag_prefix_string = nil
     end
 
     if @input_tag_remove_prefix
@@ -131,30 +135,44 @@ DESC
     end
 
     if @store_storage
-      config = conf.elements.select{|e| e.name == 'storage'}.first
-      @storage = storage_create(usage: 'out_datacounter_store', conf: config,
-                                default_type: DEFAULT_STORAGE_TYPE)
+      @storage = storage_create(usage: 'resume')
+    end
+
+    if system_config.workers > 1
+      log.warn "Fluentd is now working with multi process workers, and numeric_counter plugin will produce counter results in each separeted processes."
     end
 
     @counts = count_initialized
     @mutex = Mutex.new
   end
 
+  def multi_workers_ready?
+    true
+  end
+
   def start
     super
+
     load_status(@count_interval) if @store_storage
-    start_watch
+
+    @last_checked = Fluent::Engine.now
+
+    timer_execute(:out_numeric_counter_timer, @count_interval) do
+      now = Fluent::Engine.now
+      flush_emit(now - @last_checked)
+      @last_checked = now
+    end
   end
 
   def shutdown
-    super
     save_status() if @store_storage
+    super
   end
 
   def count_initialized(keys=nil)
     # counts['tag'][pattern_index_num] = count
     # counts['tag'][-1] = sum
-    if @aggregate == "all"
+    if @aggregate == :all
       {'all' => Array.new(@patterns.length + 1){|i| 0}}
     elsif keys
       values = Array.new(keys.length){|i|
@@ -167,7 +185,7 @@ DESC
   end
 
   def countups(tag, counts)
-    if @aggregate == "all"
+    if @aggregate == :all
       tag = 'all'
     end
 
@@ -213,7 +231,7 @@ DESC
   end
 
   def generate_output(counts, step)
-    if @aggregate == "all"
+    if @aggregate == :all
       return generate_fields(step, counts['all'], '', {})
     end
 
@@ -225,7 +243,7 @@ DESC
   end
 
   def generate_output_per_tags(counts, step)
-    if @aggregate == "all"
+    if @aggregate == :all
       return {'all' => generate_fields(step, counts['all'], '', {})}
     end
 
@@ -250,26 +268,17 @@ DESC
     if @output_per_tag
       time = Fluent::Engine.now
       flush_per_tags(step).each do |tag,message|
-        router.emit(@tag_prefix_string + tag, time, message)
+        if @tag_prefix_string
+          router.emit(@tag_prefix_string + tag, time, message)
+        else
+          router.emit(tag, time, message)
+        end
       end
     else
       message = flush(step)
       if message.keys.size > 0
         router.emit(@tag, Fluent::Engine.now, message)
       end
-    end
-  end
-
-  def start_watch
-    @last_checked ||= Fluent::Engine.now
-    timer_execute(:out_numeric_counter_timer, 0.5, &method(:watch))
-  end
-
-  def watch
-    if Fluent::Engine.now - @last_checked >= @count_interval
-      now = Fluent::Engine.now
-      flush_emit(now - @last_checked)
-      @last_checked = now
     end
   end
 
@@ -300,17 +309,16 @@ DESC
       @saved_at = Fluent::Engine.now
       @saved_duration = @saved_at - @last_checked
       value = {
-        "counts"           => @counts,
-        "saved_at"        => @saved_at,
-        "saved_duration"  => @saved_duration,
-        "aggregate"        => @aggregate,
-        "count_key"        => @count_key,
-        "patterns"         => @patterns,
+        "counts"         => @counts,
+        "saved_at"       => @saved_at,
+        "saved_duration" => @saved_duration,
+        "aggregate"      => @aggregate.to_s,
+        "count_key"      => @count_key,
+        "patterns"       => @patterns,
       }
       @storage.put(:stored_value, value)
     rescue => e
-      raise e
-      log.warn "out_numeric_counter: Can't write store_storage #{e.class} #{e.message}"
+      log.warn "Can't write store_storage", error: e
     end
   end
 
@@ -318,11 +326,11 @@ DESC
   #
   # @param [Interger] count_interval
   def load_status(count_interval)
-    return unless @storage.get(:stored_value)
+    stored = @storage.get(:stored_value)
+    return unless stored
 
     begin
-      stored = @storage.get(:stored_value)
-      if stored["aggregate"] == @aggregate and
+      if stored["aggregate"] == @aggregate.to_s and
         stored["count_key"] == @count_key and
         stored["patterns"] == @patterns
 
@@ -336,13 +344,13 @@ DESC
             @last_checked = Fluent::Engine.now - @saved_duration
           }
         else
-          log.warn "out_numeric_counter: stored data is outdated. ignore stored data"
+          log.warn "stored data is outdated. ignore stored data"
         end
       else
-        log.warn "out_numeric_counter: configuration param was changed. ignore stored data"
+        log.warn "configuration param was changed. ignore stored data"
       end
     rescue => e
-      log.warn "out_numeric_counter: Can't load store_storage #{e.class} #{e.message}"
+      log.warn "Can't load store_storage", error: e
     end
   end
 
