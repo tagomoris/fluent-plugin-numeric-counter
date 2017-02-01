@@ -2,7 +2,7 @@
 
 Gem::Specification.new do |gem|
   gem.name          = "fluent-plugin-numeric-counter"
-  gem.version       = "0.3.0"
+  gem.version       = "1.0.0"
   gem.authors       = ["TAGOMORI Satoshi"]
   gem.email         = ["tagomoris@gmail.com"]
   gem.description   = %q{Counts messages, with specified key and numeric value in specified range}
@@ -15,8 +15,8 @@ Gem::Specification.new do |gem|
   gem.test_files    = gem.files.grep(%r{^(test|spec|features)/})
   gem.require_paths = ["lib"]
 
+  gem.add_runtime_dependency "fluentd", ">= 0.14.0"
   gem.add_development_dependency "rake"
-  gem.add_development_dependency "delorean"
+  gem.add_development_dependency "timecop"
   gem.add_development_dependency "test-unit", ">= 3.1.0"
-  gem.add_runtime_dependency "fluentd", "< 0.14.0"
 end
