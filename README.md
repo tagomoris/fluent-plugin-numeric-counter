@@ -1,9 +1,5 @@
 # fluent-plugin-numeric-counter
 
-## Component
-
-### NumericCounterOutput
-
 [Fluentd](http://fluentd.org) plugin to count messages, matches for numeric range patterns, and emits its result (like fluent-plugin-datacounter).
 
 - Counts per min/hour/day
@@ -15,7 +11,7 @@ NumericCounterOutput emits messages contains results data, so you can output the
     output ex1 (aggregates all inputs): {"pattern1_count":20, "pattern1_rate":0.333, "pattern1_percentage":25.0, "pattern2_count":40, "pattern2_rate":0.666, "pattern2_percentage":50.0, "unmatched_count":20, "unmatched_rate":0.333, "unmatched_percentage":25.0}
     output ex2 (aggregates per tag): {"test_pattern1_count":10, "test_pattern1_rate":0.333, "test_pattern1_percentage":25.0, "test_pattern2_count":40, "test_pattern2_rate":0.666, "test_pattern2_percentage":50.0, "test_unmatched_count":20, "test_unmatched_rate":0.333, "test_unmatched_percentage":25.0}
 
-'input\_tag\_remove\_prefix' option available if you want to remove tag prefix from output field names.
+`input_tag_remove_prefix` option available if you want to remove tag prefix from output field names.
 
 If you want to omit 'unmatched' messages from percentage counting, specify 'outcast_unmatched yes'.
 
@@ -61,15 +57,15 @@ Size specifier (like 10k, 5M, 103g) available as 1024\*\*1, 1024\*\*2, 1024\*\*3
 
 You can try to use negative numbers, and floating point numbers.... (not tested enough).
 
-With 'output\_per\_tag' option and 'tag\_prefix', we get one result message for one tag:
+With 'output\_per\_tag' option and '@label', we get one result message for one tag, routed to specified label:
 
     <match accesslog.{foo,bar}>
       @type numeric_counter
+      @label @log_count
       unit hour
       aggregate tag
       count_key bytes
       output_per_tag yes
-      tag_prefix byteslog
       input_tag_remove_prefix accesslog
       
       pattern1 SMALL    0 1k
@@ -78,8 +74,17 @@ With 'output\_per\_tag' option and 'tag\_prefix', we get one result message for 
       pattern4 HUGE   10m 1g
       pattern5 XXXX    1g
     </match>
-    # => tag: 'byteslog.foo' and 'byteslog.bar'
-    #    message: {'SMALL_count' => 100, ... }
+    
+    <label @log_count>
+      <match foo>
+        # => tag: 'foo'
+        #    message: {'SMALL_count' => 100, ... }
+      </match>
+      <match bar>
+        # => tag: 'bar'
+        #    message: {'SMALL_count' => 100, ... }
+      </match>
+    </label>
 
 And you can get tested messages count with 'output\_messages' option:
 
