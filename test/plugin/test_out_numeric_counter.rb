@@ -1,6 +1,10 @@
 require 'helper'
+require 'fluent/test/helpers'
+require 'fluent/test/driver/output'
 
 class NumericCounterOutputTest < Test::Unit::TestCase
+  include Fluent::Test::Helpers
+
   def setup
     Fluent::Test.setup
   end
@@ -28,17 +32,17 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     output_messages true
   ]
 
-  def create_driver(conf=CONFIG, tag='test')
-    Fluent::Test::OutputTestDriver.new(Fluent::NumericCounterOutput, tag).configure(conf)
+  def create_driver(conf=CONFIG)
+    Fluent::Test::Driver::Output.new(Fluent::Plugin::NumericCounterOutput).configure(conf)
   end
-  
+
   def test_parse_num
     p = create_driver.instance
 
     assert_equal 1, p.parse_num('1')
-    assert_equal -1, p.parse_num('-1')
+    assert_equal (-1), p.parse_num('-1')
     assert_equal 1.0, p.parse_num('1.0')
-    assert_equal -2.0, p.parse_num('-2.0000')
+    assert_equal (-2.0), p.parse_num('-2.0000')
     assert_equal 1024, p.parse_num('1k')
   end
 
@@ -50,7 +54,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     ]
 
     assert_equal 60, d.instance.count_interval
-    assert_equal :tag, d.instance.aggregate
+    assert_equal "tag", d.instance.aggregate
     assert_equal 'numcount', d.instance.tag
     assert_nil d.instance.input_tag_remove_prefix
     assert_equal false, d.instance.outcast_unmatched
@@ -79,7 +83,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     ]
 
     assert_equal 60, d.instance.count_interval
-    assert_equal :tag, d.instance.aggregate
+    assert_equal "tag", d.instance.aggregate
     assert_equal 'numcount', d.instance.tag
     assert_nil d.instance.input_tag_remove_prefix
     assert_equal false, d.instance.outcast_unmatched
@@ -247,7 +251,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
   end
 
   def test_pattern_num
-    assert_equal 20, Fluent::NumericCounterOutput::PATTERN_MAX_NUM
+    assert_equal 20, Fluent::Plugin::NumericCounterOutput::PATTERN_MAX_NUM
 
     conf = %[
       aggregate all
@@ -256,10 +260,10 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     (1..20).each do |i|
       conf += "pattern#{i} name#{i} #{i} #{i+1}\n"
     end
-    d = create_driver(conf, 'test.max')
-    d.run do
+    d = create_driver(conf)
+    d.run(default_tag: 'test.max') do
       (0..21).each do |i|
-        d.emit({'field' => i})
+        d.feed({'field' => i})
       end
     end
     r = d.instance.flush(60)
@@ -296,14 +300,14 @@ class NumericCounterOutputTest < Test::Unit::TestCase
   #   pattern2 u1s 100000 1000000
   #   pattern3 u3s 1000000 3000000
   # ]
-    d = create_driver(CONFIG, 'test.tag1')
-    d.run do
+    d = create_driver(CONFIG)
+    d.run(default_tag: 'test.tag1') do
       60.times do
-        d.emit({'target' =>  '50000'})
-        d.emit({'target' => '100000'})
-        d.emit({'target' => '100001'})
-        d.emit({'target' => '0.0'})
-        d.emit({'target' => '-1'})
+        d.feed({'target' =>  '50000'})
+        d.feed({'target' => '100000'})
+        d.feed({'target' => '100001'})
+        d.feed({'target' => '0.0'})
+        d.feed({'target' => '-1'})
       end
     end
     r = d.instance.flush(60)
@@ -321,20 +325,20 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     assert_equal 1.0, r['tag1_unmatched_rate']
     assert_equal 20, r['tag1_unmatched_percentage']
 
-    d = create_driver(CONFIG, 'test.tag1')
-    d.run do
+    d = create_driver(CONFIG)
+    d.run(default_tag: 'test.tag1') do
       60.times do
-        d.emit({'target' =>  '50000'})
-        d.emit({'target' => '100000'})
-        d.emit({'target' => '100001'})
-        d.emit({'target' => '0.0'})
-        d.emit({'target' => '-1'})
+        d.feed({'target' =>  '50000'})
+        d.feed({'target' => '100000'})
+        d.feed({'target' => '100001'})
+        d.feed({'target' => '0.0'})
+        d.feed({'target' => '-1'})
       end
+      d.instance.flush_emit(60)
     end
-    d.instance.flush_emit(60)
-    emits = d.emits
-    assert_equal 1, emits.length
-    data = emits[0]
+    events = d.events
+    assert_equal 1, events.length
+    data = events[0]
     assert_equal 'numcount', data[0] # tag
     r = data[2] # message
     assert_equal 120, r['tag1_u100ms_count']
@@ -352,17 +356,18 @@ class NumericCounterOutputTest < Test::Unit::TestCase
   end
 
   def test_emit_output_per_tag
-    d = create_driver(CONFIG_OUTPUT_PER_TAG, 'test.tag1')
-    d.run do
+    d = create_driver(CONFIG_OUTPUT_PER_TAG)
+    r = {}
+    d.run(default_tag: 'test.tag1') do
       60.times do
-        d.emit({'target' =>  '50000'})
-        d.emit({'target' => '100000'})
-        d.emit({'target' => '100001'})
-        d.emit({'target' => '0.0'})
-        d.emit({'target' => '-1'})
+        d.feed({'target' =>  '50000'})
+        d.feed({'target' => '100000'})
+        d.feed({'target' => '100001'})
+        d.feed({'target' => '0.0'})
+        d.feed({'target' => '-1'})
       end
+      r = d.instance.flush_per_tags(60)
     end
-    r = d.instance.flush_per_tags(60)
     assert_equal 1, r.keys.size
     r1 = r['tag1']
     assert_equal 120, r1['u100ms_count']
@@ -379,20 +384,20 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     assert_equal 20, r1['unmatched_percentage']
     assert_equal 300, r1['messages']
 
-    d = create_driver(CONFIG_OUTPUT_PER_TAG, 'test.tag1')
-    d.run do
+    d = create_driver(CONFIG_OUTPUT_PER_TAG)
+    d.run(default_tag: 'test.tag1') do
       60.times do
-        d.emit({'target' =>  '50000'})
-        d.emit({'target' => '100000'})
-        d.emit({'target' => '100001'})
-        d.emit({'target' => '0.0'})
-        d.emit({'target' => '-1'})
+        d.feed({'target' =>  '50000'})
+        d.feed({'target' => '100000'})
+        d.feed({'target' => '100001'})
+        d.feed({'target' => '0.0'})
+        d.feed({'target' => '-1'})
       end
+      d.instance.flush_emit(60)
     end
-    d.instance.flush_emit(60)
-    emits = d.emits
-    assert_equal 1, emits.length
-    data = emits[0]
+    events = d.events
+    assert_equal 1, events.length
+    data = events[0]
     assert_equal 'n.tag1', data[0] # tag
     r = data[2] # message
     assert_equal 120, r['u100ms_count']
@@ -418,7 +423,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
       ['count', 'rate'].map{|a| p + '_' + a}
     }.flatten
 
-    d = create_driver(CONFIG, 'test.tag1')
+    d = create_driver(CONFIG)
     # CONFIG = %[
     #   count_interval 60
     #   aggregate tag
@@ -428,28 +433,28 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     #   pattern2 u1s 100000 1000000
     #   pattern3 u3s 1000000 3000000
     # ]
-    d.run do
+    d.run(default_tag: 'test.tag1') do
       60.times do
-        d.emit({'target' =>  '50000'})
-        d.emit({'target' => '100000'})
-        d.emit({'target' => '100001'})
-        d.emit({'target' => '0.0'})
-        d.emit({'target' => '-1'})
+        d.feed({'target' =>  '50000'})
+        d.feed({'target' => '100000'})
+        d.feed({'target' => '100001'})
+        d.feed({'target' => '0.0'})
+        d.feed({'target' => '-1'})
       end
+      d.instance.flush_emit(60)
+      assert_equal 1, d.events.size
+      r1 = d.events[0][2]
+      assert_equal fields, r1.keys
+
+      d.instance.flush_emit(60)
+      assert_equal 2, d.events.size # +1
+      r2 = d.events[1][2]
+      assert_equal fields_without_percentage, r2.keys
+      assert_equal [0]*8, r2.values
+
+      d.instance.flush_emit(60)
+      assert_equal 2, d.events.size # +0
     end
-    d.instance.flush_emit(60)
-    assert_equal 1, d.emits.size
-    r1 = d.emits[0][2]
-    assert_equal fields, r1.keys
-
-    d.instance.flush_emit(60)
-    assert_equal 2, d.emits.size # +1
-    r2 = d.emits[1][2]
-    assert_equal fields_without_percentage, r2.keys
-    assert_equal [0]*8, r2.values
-
-    d.instance.flush_emit(60)
-    assert_equal 2, d.emits.size # +0
   end
 
   def test_zero_tags_per_tag
@@ -460,7 +465,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
         ['count', 'rate'].map{|a| p + '_' + a}
       }.flatten + ['messages']).sort
 
-    d = create_driver(CONFIG_OUTPUT_PER_TAG, 'test.tag1')
+    d = create_driver(CONFIG_OUTPUT_PER_TAG)
     # CONFIG_OUTPUT_PER_TAG = %[
     #   count_interval 60
     #   aggregate tag
@@ -473,44 +478,63 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     #   pattern3 u3s 1000000 3000000
     #   output_messages true
     # ]
-    d.run do
+    d.run(default_tag: 'test.tag1') do
       60.times do
-        d.emit({'target' =>  '50000'})
-        d.emit({'target' => '100000'})
-        d.emit({'target' => '100001'})
-        d.emit({'target' => '0.0'})
-        d.emit({'target' => '-1'})
+        d.feed({'target' =>  '50000'})
+        d.feed({'target' => '100000'})
+        d.feed({'target' => '100001'})
+        d.feed({'target' => '0.0'})
+        d.feed({'target' => '-1'})
       end
+      d.instance.flush_emit(60)
+      assert_equal 1, d.events.size
+      r1 = d.events[0][2]
+      assert_equal fields, r1.keys.sort
+
+      d.instance.flush_emit(60)
+      assert_equal 2, d.events.size # +1
+      r2 = d.events[1][2]
+      assert_equal fields_without_percentage, r2.keys.sort
+      assert_equal [0]*9, r2.values # (_count, _rate) x4 + messages
+
+      d.instance.flush_emit(60)
+      assert_equal 2, d.events.size # +0
     end
-    d.instance.flush_emit(60)
-    assert_equal 1, d.emits.size
-    r1 = d.emits[0][2]
-    assert_equal fields, r1.keys.sort
-
-    d.instance.flush_emit(60)
-    assert_equal 2, d.emits.size # +1
-    r2 = d.emits[1][2]
-    assert_equal fields_without_percentage, r2.keys.sort
-    assert_equal [0]*9, r2.values # (_count, _rate) x4 + messages
-
-    d.instance.flush_emit(60)
-    assert_equal 2, d.emits.size # +0
   end
 
-  def test_store_file
+  def test_store_storage
     dir = "test/tmp"
     Dir.mkdir dir unless Dir.exist? dir
     file = "#{dir}/test.dat"
     File.unlink file if File.exist? file
 
+    config = {
+      "count_interval" => 60,
+      "aggregate" => "tag",
+      "input_tag_remove_prefix" => "test",
+      "count_key" => " target",
+      "pattern1" => "u100ms 0 100000",
+      "pattern2" => "u1s 100000 1000000",
+      "pattern3" => "u3s 1000000 3000000",
+      "store_storage" => true,
+    }
+    conf = config_element('ROOT', '', config, [
+                            config_element(
+                              'storage', '',
+                              {'@type' => 'local',
+                               '@id' => 'test-01',
+                               'path' => "#{file}",
+                               'persistent' => true,
+                              })
+                          ])
     # test store
-    d = create_driver(CONFIG + %[store_file #{file}])
-    d.run do
+    d = create_driver(conf)
+    time = Fluent::Engine.now
+    d.run(default_tag: 'test') do
       d.instance.flush_emit(60)
-      d.emit({'target' => 1})
-      d.emit({'target' => 1})
-      d.emit({'target' => 1})
-      d.instance.shutdown
+      d.feed(time, {'target' => 1})
+      d.feed(time, {'target' => 1})
+      d.feed(time, {'target' => 1})
     end
     stored_counts = d.instance.counts
     stored_saved_at = d.instance.saved_at
@@ -518,38 +542,41 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     assert File.exist? file
 
     # test load
-    d = create_driver(CONFIG + %[store_file #{file}])
-    d.run do
+    d = create_driver(conf)
+    loaded_counts = 0
+    loaded_saved_at = 0
+    loaded_saved_duration = 0
+    d.run(default_tag: 'test') do
       loaded_counts = d.instance.counts
       loaded_saved_at = d.instance.saved_at
       loaded_saved_duration = d.instance.saved_duration
-      assert_equal stored_counts, loaded_counts
-      assert_equal stored_saved_at, loaded_saved_at
-      assert_equal stored_saved_duration, loaded_saved_duration
     end
+    assert_equal stored_counts, loaded_counts
+    assert_equal stored_saved_at, loaded_saved_at
+    assert_equal stored_saved_duration, loaded_saved_duration
 
     # test not to load if config is changed
-    d = create_driver(CONFIG + %[count_key foobar store_file #{file}])
-    d.run do
+    d = create_driver(conf.merge("count_key" => "foobar", "store_storage" => true))
+    d.run(default_tag: 'test') do
       loaded_counts = d.instance.counts
       loaded_saved_at = d.instance.saved_at
       loaded_saved_duration = d.instance.saved_duration
-      assert_equal({}, loaded_counts)
-      assert_equal(nil, loaded_saved_at)
-      assert_equal(nil, loaded_saved_duration)
     end
+    assert_equal({}, loaded_counts)
+    assert_equal(nil, loaded_saved_at)
+    assert_equal(nil, loaded_saved_duration)
 
     # test not to load if stored data is outdated.
     Delorean.jump 61 # jump more than count_interval
-    d = create_driver(CONFIG + %[store_file #{file}])
-    d.run do
+    d = create_driver(conf.merge("store_storage" => true))
+    d.run(default_tag: 'test') do
       loaded_counts = d.instance.counts
       loaded_saved_at = d.instance.saved_at
       loaded_saved_duration = d.instance.saved_duration
-      assert_equal({}, loaded_counts)
-      assert_equal(nil, loaded_saved_at)
-      assert_equal(nil, loaded_saved_duration)
     end
+    assert_equal({}, loaded_counts)
+    assert_equal(nil, loaded_saved_at)
+    assert_equal(nil, loaded_saved_duration)
     Delorean.back_to_the_present
 
     File.unlink file

@@ -1,59 +1,65 @@
-class Fluent::NumericCounterOutput < Fluent::Output
+require 'fluent/plugin/output'
+require 'pathname'
+
+class Fluent::Plugin::NumericCounterOutput < Fluent::Plugin::Output
   Fluent::Plugin.register_output('numeric_counter', self)
+
+  helpers :event_emitter, :storage, :timer
 
   def initialize
     super
-    require 'pathname'
   end
 
+  DEFAULT_STORAGE_TYPE = 'local'
   PATTERN_MAX_NUM = 20
 
-  config_param :count_interval, :time, :default => 60,
-               :desc => 'The interval time to count in seconds.'
-  config_param :unit, :string, :default => nil,
-               :desc => <<-DESC
+  config_param :count_interval, :time, default: 60,
+               desc: 'The interval time to count in seconds.'
+  config_param :unit, :string, default: nil,
+               desc: <<-DESC
 The interval time to monitor specified an unit (either of minute, hour, or day).
 Use either of count_interval or unit.
 DESC
-  config_param :output_per_tag, :bool, :default => false,
-               :desc => <<-DESC
+  config_param :output_per_tag, :bool, default: false,
+               desc: <<-DESC
 Emit for each input tag.
 tag_prefix must be specified together.
 DESC
-  config_param :aggregate, :string, :default => 'tag',
-               :desc => 'Calculate in each input tag separetely, or all records in a mass.'
-  config_param :tag, :string, :default => 'numcount',
-               :desc => 'The output tag.'
-  config_param :tag_prefix, :string, :default => nil,
-               :desc => <<-DESC
+  config_param :aggregate, :string, default: 'tag',
+               desc: 'Calculate in each input tag separetely, or all records in a mass.'
+  config_param :tag, :string, default: 'numcount',
+               desc: 'The output tag.'
+  config_param :tag_prefix, :string, default: nil,
+               desc: <<-DESC
 The prefix string which will be added to the input tag.
 output_per_tag yes must be specified together.
 DESC
-  config_param :input_tag_remove_prefix, :string, :default => nil,
-               :desc => 'The prefix string which will be removed from the input tag.'
+  config_param :input_tag_remove_prefix, :string, default: nil,
+               desc: 'The prefix string which will be removed from the input tag.'
   config_param :count_key, :string,
-               :desc => 'The key to count in the event record.'
-  config_param :outcast_unmatched, :bool, :default => false,
-               :desc => <<-DESC
+               desc: 'The key to count in the event record.'
+  config_param :outcast_unmatched, :bool, default: false,
+               desc: <<-DESC
 Specify yes if you do not want to include 'unmatched' counts into percentage.
 DESC
-  config_param :output_messages, :bool, :default => false,
-               :desc => 'Specify yes if you want to get tested messages.'
-  config_param :store_file, :string, :default => nil,
-               :desc => <<-DESC
-Store internal data into a file of the given path on shutdown, and load on starting.
-DESC
+  config_param :output_messages, :bool, default: false,
+               desc: 'Specify yes if you want to get tested messages.'
+  config_param :store_file, :string, default: nil,
+               obsoleted: 'Use store_storage parameter instead.',
+               desc: 'Store internal data into a file of the given path on shutdown, and load on starting.'
+  config_param :store_storage, :bool, default: false,
+               desc: 'Store internal data into a storage on shutdown, and load on starting.'
 
   # pattern0 reserved as unmatched counts
   config_param :pattern1, :string,
-               :desc => <<-DESC
+               desc: <<-DESC
 string: NAME LOW HIGH
 LOW/HIGH allows size prefix (ex: 10k, 5M, 3500G)
 Note that pattern0 reserved as unmatched counts.
 DESC
   (2..PATTERN_MAX_NUM).each do |i|
-    config_param ('pattern' + i.to_s).to_sym, :string, :default => nil,
-                 :desc => 'string: NAME LOW HIGH'
+    config_param ('pattern' + i.to_s).to_sym, :string, default: nil,
+                 desc: 'string: NAME LOW HIGH'
   end
 
   attr_accessor :counts
@@ -61,16 +67,6 @@ DESC
   attr_accessor :saved_duration
   attr_accessor :saved_at
   attr_accessor :patterns
-
-  # Define `log` method for v0.10.42 or earlier
-  unless method_defined?(:log)
-    define_method("log") { $log }
-  end
-
-  # Define `router` method of v0.12 to support v0.10.57 or earlier
-  unless method_defined?(:router)
-    define_method("router") { Fluent::Engine }
-  end
 
   def parse_num(str)
     if str.nil?
@@ -97,8 +93,7 @@ DESC
                         end
     end
 
-    @aggregate = @aggregate.to_sym
-    raise Fluent::ConfigError, "numeric_counter allows tag/all to aggregate unit" unless [:tag, :all].include?(@aggregate)
+    raise Fluent::ConfigError, "numeric_counter allows tag/all to aggregate unit" unless ["tag", "all"].include?(@aggregate)
 
     @patterns = [[0, 'unmatched', nil, nil]] # counts-index, name, low, high
     pattern_names = ['unmatched']
@@ -124,7 +119,7 @@ DESC
       raise Fluent::ConfigError, "numbers of low/high missing" if low.nil?
       raise Fluent::ConfigError, "unspecified high threshold allowed only in last pattern" if high.nil? and index != @patterns.length - 1
     end
-    
+
     if @output_per_tag
       raise Fluent::ConfigError, "tag_prefix must be specified with output_per_tag" unless @tag_prefix
       @tag_prefix_string = @tag_prefix + '.'
@@ -135,11 +130,10 @@ DESC
       @removed_length = @removed_prefix_string.length
     end
 
-    if @store_file
-      f = Pathname.new(@store_file)
-      if (f.exist? && !f.writable_real?) || (!f.exist? && !f.parent.writable_real?)
-        raise Fluent::ConfigError, "#{@store_file} is not writable"
-      end
+    if @store_storage
+      config = conf.elements.select{|e| e.name == 'storage'}.first
+      @storage = storage_create(usage: 'out_datacounter_store', conf: config,
+                                default_type: DEFAULT_STORAGE_TYPE)
     end
 
     @counts = count_initialized
@@ -148,21 +142,19 @@ DESC
 
   def start
     super
-    load_status(@store_file, @count_interval) if @store_file
+    load_status(@count_interval) if @store_storage
     start_watch
   end
 
   def shutdown
     super
-    @watcher.terminate
-    @watcher.join
-    save_status(@store_file) if @store_file
+    save_status() if @store_storage
   end
 
   def count_initialized(keys=nil)
     # counts['tag'][pattern_index_num] = count
     # counts['tag'][-1] = sum
-    if @aggregate == :all
+    if @aggregate == "all"
       {'all' => Array.new(@patterns.length + 1){|i| 0}}
     elsif keys
       values = Array.new(keys.length){|i|
@@ -175,7 +167,7 @@ DESC
   end
 
   def countups(tag, counts)
-    if @aggregate == :all
+    if @aggregate == "all"
       tag = 'all'
     end
 
@@ -217,11 +209,11 @@ DESC
       end
     end
 
-    output    
+    output
   end
 
   def generate_output(counts, step)
-    if @aggregate == :all
+    if @aggregate == "all"
       return generate_fields(step, counts['all'], '', {})
     end
 
@@ -233,7 +225,7 @@ DESC
   end
 
   def generate_output_per_tags(counts, step)
-    if @aggregate == :all
+    if @aggregate == "all"
       return {'all' => generate_fields(step, counts['all'], '', {})}
     end
 
@@ -269,22 +261,19 @@ DESC
   end
 
   def start_watch
-    @watcher = Thread.new(&method(:watch))
+    @last_checked ||= Fluent::Engine.now
+    timer_execute(:out_numeric_counter_timer, 0.5, &method(:watch))
   end
 
   def watch
-    @last_checked ||= Fluent::Engine.now
-    while true
-      sleep 0.5
-      if Fluent::Engine.now - @last_checked >= @count_interval
-        now = Fluent::Engine.now
-        flush_emit(now - @last_checked)
-        @last_checked = now
-      end
+    if Fluent::Engine.now - @last_checked >= @count_interval
+      now = Fluent::Engine.now
+      flush_emit(now - @last_checked)
+      @last_checked = now
     end
   end
 
-  def emit(tag, es, chain)
+  def process(tag, es)
     c = [0] * @patterns.length
 
     es.each do |time,record|
@@ -302,62 +291,58 @@ DESC
       c[0] += 1 unless matched
     end
     countups(tag, c)
-
-    chain.next
   end
 
-  # Store internal status into a file
+  # Store internal status into a storage
   #
-  # @param [String] file_path
-  def save_status(file_path)
+  def save_status()
     begin
-      Pathname.new(file_path).open('wb') do |f|
-        @saved_at = Fluent::Engine.now
-        @saved_duration = @saved_at - @last_checked
-        Marshal.dump({
-          :counts           => @counts,
-          :saved_at         => @saved_at,
-          :saved_duration   => @saved_duration,
-          :aggregate        => @aggregate,
-          :count_key        => @count_key,
-          :patterns         => @patterns,
-        }, f)
-      end
+      @saved_at = Fluent::Engine.now
+      @saved_duration = @saved_at - @last_checked
+      value = {
+        "counts"           => @counts,
+        "saved_at"        => @saved_at,
+        "saved_duration"  => @saved_duration,
+        "aggregate"        => @aggregate,
+        "count_key"        => @count_key,
+        "patterns"         => @patterns,
+      }
+      @storage.put(:stored_value, value)
     rescue => e
-      log.warn "out_datacounter: Can't write store_file #{e.class} #{e.message}"
+      raise e
+      log.warn "out_numeric_counter: Can't write store_storage #{e.class} #{e.message}"
     end
   end
 
-  # Load internal status from a file
+  # Load internal status from a storage
   #
-  # @param [String] file_path
   # @param [Interger] count_interval
-  def load_status(file_path, count_interval)
-    return unless (f = Pathname.new(file_path)).exist?
+  def load_status(count_interval)
+    return unless @storage.get(:stored_value)
 
     begin
-      f.open('rb') do |f|
-        stored = Marshal.load(f)
-        if stored[:aggregate] == @aggregate and
-          stored[:count_key] == @count_key and
-          stored[:patterns]  == @patterns
+      stored = @storage.get(:stored_value)
+      if stored["aggregate"] == @aggregate and
+        stored["count_key"] == @count_key and
+        stored["patterns"] == @patterns
 
-          if Fluent::Engine.now <= stored[:saved_at] + count_interval
-            @counts = stored[:counts]
-            @saved_at = stored[:saved_at]
-            @saved_duration = stored[:saved_duration]
+        if Fluent::Engine.now <= stored["saved_at"] + count_interval
+          @mutex.synchronize {
+            @counts = stored["counts"]
+            @saved_at = stored["saved_at"]
+            @saved_duration = stored["saved_duration"]
 
             # skip the saved duration to continue counting
             @last_checked = Fluent::Engine.now - @saved_duration
-          else
-            log.warn "out_datacounter: stored data is outdated. ignore stored data"
-          end
+          }
         else
-          log.warn "out_datacounter: configuration param was changed. ignore stored data"
+          log.warn "out_numeric_counter: stored data is outdated. ignore stored data"
         end
+      else
+        log.warn "out_numeric_counter: configuration param was changed. ignore stored data"
       end
     rescue => e
-      log.warn "out_datacounter: Can't load store_file #{e.class} #{e.message}"
+      log.warn "out_numeric_counter: Can't load store_storage #{e.class} #{e.message}"
     end
   end
 
