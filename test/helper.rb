@@ -22,7 +22,6 @@ unless ENV.has_key?('VERBOSE')
   $log = nulllogger
 end
 
-require 'delorean'
 require 'fluent/plugin/out_numeric_counter'
 
 class Test::Unit::TestCase

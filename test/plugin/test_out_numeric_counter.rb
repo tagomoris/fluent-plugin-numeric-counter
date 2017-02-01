@@ -1,12 +1,18 @@
 require 'helper'
 require 'fluent/test/helpers'
 require 'fluent/test/driver/output'
+require 'timecop'
+require 'fileutils'
 
 class NumericCounterOutputTest < Test::Unit::TestCase
   include Fluent::Test::Helpers
 
   def setup
     Fluent::Test.setup
+  end
+
+  def teardown
+    Timecop.return
   end
 
   CONFIG = %[
@@ -54,7 +60,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     ]
 
     assert_equal 60, d.instance.count_interval
-    assert_equal "tag", d.instance.aggregate
+    assert_equal :tag, d.instance.aggregate
     assert_equal 'numcount', d.instance.tag
     assert_nil d.instance.input_tag_remove_prefix
     assert_equal false, d.instance.outcast_unmatched
@@ -83,7 +89,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     ]
 
     assert_equal 60, d.instance.count_interval
-    assert_equal "tag", d.instance.aggregate
+    assert_equal :tag, d.instance.aggregate
     assert_equal 'numcount', d.instance.tag
     assert_nil d.instance.input_tag_remove_prefix
     assert_equal false, d.instance.outcast_unmatched
@@ -504,9 +510,9 @@ class NumericCounterOutputTest < Test::Unit::TestCase
 
   def test_store_storage
     dir = "test/tmp"
-    Dir.mkdir dir unless Dir.exist? dir
     file = "#{dir}/test.dat"
-    File.unlink file if File.exist? file
+    FileUtils.rm_rf(file)
+    FileUtils.mkdir_p(dir)
 
     config = {
       "count_interval" => 60,
@@ -567,7 +573,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     assert_equal(nil, loaded_saved_duration)
 
     # test not to load if stored data is outdated.
-    Delorean.jump 61 # jump more than count_interval
+    Timecop.freeze(Time.now + 61) # jump more than count_interval
     d = create_driver(conf.merge("store_storage" => true))
     d.run(default_tag: 'test') do
       loaded_counts = d.instance.counts
@@ -577,8 +583,7 @@ class NumericCounterOutputTest < Test::Unit::TestCase
     assert_equal({}, loaded_counts)
     assert_equal(nil, loaded_saved_at)
     assert_equal(nil, loaded_saved_duration)
-    Delorean.back_to_the_present
 
-    File.unlink file
+    FileUtils.rm_rf(file)
   end
 end
