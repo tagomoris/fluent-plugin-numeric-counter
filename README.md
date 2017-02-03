@@ -15,6 +15,13 @@ NumericCounterOutput emits messages contains results data, so you can output the
 
 If you want to omit 'unmatched' messages from percentage counting, specify 'outcast_unmatched yes'.
 
+## Requirements
+
+| fluent-plugin-numeric-counter | fluentd    | ruby   |
+|-------------------------------|------------|--------|
+| >= 1.0.0                      | >= v0.14.0 | >= 2.1 |
+| <  1.0.0                      | <  v0.14.0 | >= 1.9 |
+
 ## Configuration
 
 ### NumericCounterOutput
